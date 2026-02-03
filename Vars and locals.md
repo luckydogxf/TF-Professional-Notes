@@ -1,0 +1,92 @@
+# 变量传递
+
+我们之前介绍了`module`的功能，它是功能的复用，比如我们有3个环境，我们用`workspace`可以实现3个环境的隔离。那如何把3个环境的变量传递进去呢? 原始的做法是定义3个`vars.tf`,然后 执行的时候，指定`-var-files值，这样不够高级和智能。
+
+其实我们可以用`workspace` 和 `locals`来解决这个问题。
+
+# 具体例子
+
+* ` local.ew1.staging.yaml`
+```
+ew1.staging:
+  region: "eu-west-1"
+  profile: "ew1.staging"
+  ec2_common:
+    ami: "ami-0c55b159cbfafe1f0"
+    instance_type: "t2.micro"
+    subnet_id: "subnet-0123456789abcdef0"           
+    tags:
+      "mycompany:environment": "staging"
+      "mycompany:business-unit": "global"
+  ec2_instances:
+    web_servers:
+      count: 3
+      name_prefix: "web-server"
+      custom_tags:
+        "mycompany:application-id": "web-server"
+        "mycompany:vertical": "engineering"
+    db_servers:
+      count: 2
+      name_prefix: "db-server"
+      instance_type: "t2.small" 
+      custom_tags:
+        "mycompany:application-id": "db-server"
+        "mycompany:vertical": "data"
+  ```
+  
+* `locals.tf`
+```
+locals {
+
+env= yamldecode(file("./locals.${terraform.workspace}.yaml"))
+
+ec2_instance_map = merge([
+    
+    for group_name, group_config in try(local.env[terraform.workspace].ec2_instances, {}) :
+    {
+          for index in range(max(try(group_config.count, 0), 0)) :
+          
+          "${group_name}-${index + 1}" => merge(try(local.env[terraform.workspace].ec2_common, {}),
+      
+          { name = "${try(group_config.name_prefix, "default")}-${index + 1}" } )
+    }
+    
+  ]...)
+
+}
+
+```
+
+- 上面的local 读取 对应`workspace`的变量值处理后，然后被`main.tf`解析。
+
+* `main.tf`
+```
+resource "aws_instance" "ec2_batch" {
+
+  source   = ......
+  for_each = local.ec2_instance_map
+
+  name			      = each.key
+ .....
+  tags            = each.value.tags
+
+}
+```
+
+# 总结
+- 创建你的workspace，比如 `ew1.staging`, 然后定义多个workspace对应的yaml，如上所示。
+  
+- locals读取yaml,然后通过`for`来构造Map，传递给Module，通过`for_each`来创建多个资源。
+  
+- 这样不用维护多个vars.tf文件，而且根据你的workspace来自动切换加载。
+
+# 拓展
+```
+# provider.tf
+provider "aws" {
+  region  = local.env[terraform.workspace].region
+  profile = local.env[terraform.workspace].profile
+}
+```
+可以看到，provider也可以根据`workspace`来加载对应的值。
+
