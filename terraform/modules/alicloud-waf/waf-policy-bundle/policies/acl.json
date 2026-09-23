@@ -1,0 +1,32 @@
+[
+  {
+    "name": "admin-default-deny",
+    "status": 1,
+    "origin": "custom",
+    "action": "block",
+    "conditions": [
+      {
+        "key": "URLPath",
+        "opValue": "prefix-match",
+        "values": "/admin"
+      }
+    ],
+    "ccStatus": 0,
+    "effect": "rule"
+  },
+  {
+    "name": "scanner-user-agent-block",
+    "status": 1,
+    "origin": "custom",
+    "action": "block",
+    "conditions": [
+      {
+        "key": "User-Agent",
+        "opValue": "contain-one",
+        "values": "sqlmap,nikto,nuclei,dirbuster,gobuster,ffuf,zgrab,masscan,nmap,wpscan,nessus"
+      }
+    ],
+    "ccStatus": 0,
+    "effect": "rule"
+  }
+]

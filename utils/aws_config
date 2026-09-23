@@ -1,0 +1,15 @@
+[profile dev]
+sso_start_url = https://start.home.awsapps.cn/directory/d-83670fcbdb
+sso_region = cn-northwest-1
+sso_account_id = 3xxxxx
+sso_role_name = Administrator
+region = cn-north-1
+output = json
+
+[profile prod]
+sso_start_url = https://start.home.awsapps.cn/directory/d-83670fcbdb
+sso_region = cn-northwest-1
+sso_account_id = 4xxxxxx
+sso_role_name = Administrator
+region = cn-northwest-1
+output = json

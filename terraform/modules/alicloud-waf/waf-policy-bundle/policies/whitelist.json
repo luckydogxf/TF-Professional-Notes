@@ -1,0 +1,22 @@
+[
+  {
+    "name": "admin-office-bypass-all",
+    "status": 1,
+    "origin": "custom",
+    "conditions": [
+      {
+        "key": "URLPath",
+        "opValue": "prefix-match",
+        "values": "/admin"
+      },
+      {
+        "key": "IP",
+        "opValue": "contain",
+        "values": "REPLACE_WITH_OFFICE_CIDR_1,REPLACE_WITH_OFFICE_CIDR_2"
+      }
+    ],
+    "tags": [
+      "waf"
+    ]
+  }
+]

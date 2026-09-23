@@ -1,0 +1,683 @@
+---
+# ──────────────────────────────────────────────
+# environment Configuration
+# ──────────────────────────────────────────────
+environment: "Dev"
+application: "sport"
+region: "cn-northwest-1"
+profile: "dev"
+
+# ──────────────────────────────────────────────
+# VPC Configuration
+# ──────────────────────────────────────────────
+vpcs:
+  primary:
+    cidr: "10.10.0.0/16"
+    azs: ["cn-northwest-1a", "cn-northwest-1b", "cn-northwest-1c"]
+    subnets:
+      public:
+        - cidr: "10.10.0.0/22"
+        - cidr: "10.10.4.0/22"
+        - cidr: "10.10.8.0/22"
+      private_ec2:
+        - cidr: "10.10.16.0/22"
+        - cidr: "10.10.20.0/22"
+        - cidr: "10.10.24.0/22"
+      private_eks:
+        - cidr: "10.10.32.0/19"
+        - cidr: "10.10.64.0/19"
+        - cidr: "10.10.96.0/19"
+    enable_nat_gateway: true
+    single_nat_gateway: true
+    one_nat_gateway_per_az: false 
+    enable_s3_endpoint: true
+
+###########  Security group ############
+# ──────────────────────────────────────────────
+#  Check config/security_groups/dev.yaml #
+# ──────────────────────────────────────────────
+
+# ──────────────────────────────────────────────
+# iam role Configuration
+# ──────────────────────────────────────────────
+iam_roles:
+
+  # ec2 --> s3 / custom/ standard policy
+  ec2-s3-access:
+    assume_role_policy_document: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [{
+          "Effect": "Allow",
+          "Principal": { "Service": "ec2.amazonaws.com" },
+          "Action": "sts:AssumeRole"
+        }]
+      }
+
+    policy_keys:
+      # Define policy in [iam_policies] section...
+      - "s3-access" 
+
+    # OR/AND
+    policy_arns:
+      # allow ec2 instance to pull images from ECR.
+      - "arn:aws-cn:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+
+  app-pod:
+    # eks pod -->redis/PGSQL/S3
+    description: "IAM role for app-pod service account"
+    namespace: default
+    service_account: app-pod
+    type: pod_identities     # ← 只有这个才创建关联
+    assume_role_policy_document: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "pods.eks.amazonaws.com"
+            },
+            "Action": [
+              "sts:AssumeRole",
+              "sts:TagSession"
+            ]
+          }
+        ]
+      }
+    policy_keys:
+      - "s3-access"
+      - "secrets-manager-access"
+
+  external-secrets:
+    description: "IAM role for External Secrets Operator"
+    namespace: external-secrets
+    service_account: external-secrets
+    type: pod_identities
+    assume_role_policy_document: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "pods.eks.amazonaws.com"
+            },
+            "Action": [
+              "sts:AssumeRole",
+              "sts:TagSession"
+            ]
+          }
+        ]
+      }
+    policy_keys:
+      - "secrets-manager-access" 
+
+  eks-admin:
+    description: "Dedicated EKS Cluster Administrator Role"
+    # 账号和路径，仅放一个占位符，由后方的引擎动态计算
+    assume_role_policy_document: "__DYNAMIC_SSO_ADMIN_POLICY__"
+
+    policy_arns: [] 
+
+# ──────────────────────────────────────────────
+# iam policy Configuration
+# ──────────────────────────────────────────────
+
+iam_policies:
+
+  s3-access:
+    policy_json: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:ListBucket",
+              "s3:GetBucketLocation"
+            ],
+            "Resource": [
+              "arn:aws-cn:s3:::xxx-admin-site-test",
+              "arn:aws-cn:s3:::xxx-h5-site-test",
+              "arn:aws-cn:s3:::xxx-media-test",
+              "arn:aws-cn:s3:::xxx-ugc-test"
+            ]
+          },
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:GetObject",
+              "s3:PutObject",
+              "s3:DeleteObject",
+              "s3:AbortMultipartUpload"
+            ],
+            "Resource": [
+              "arn:aws-cn:s3:::xxx-admin-site-test/*",
+              "arn:aws-cn:s3:::xxx-h5-site-test/*",
+              "arn:aws-cn:s3:::xxx-media-test/*",
+              "arn:aws-cn:s3:::xxx-ugc-test/*"
+            ]
+          }
+        ]
+      } 
+  secrets-manager-access:
+    # 允许读取 Aurora 和 Redis 的密码
+    policy_json: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:DescribeSecret"
+                ],
+                "Resource": "*",
+                "Condition": {
+                    "StringEquals": {
+                        "aws:ResourceTag/environment": "dev"
+                    }
+                }
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "kms:Decrypt"
+                ],
+                "Resource": "*"
+            }
+        ]
+      }
+
+# ──────────────────────────────────────────────
+# eks Configuration
+# ──────────────────────────────────────────────
+eks:
+  cluster_version: "1.36"
+  service_cidr: "172.20.0.0/16"
+  endpoint_private_access: true
+  endpoint_public_access: true
+  endpoint_public_access_cidrs:
+    - 0.0.0.0/0
+  addon_versions:
+    vpc-cni: "v1.23.0-eksbuild.1"
+    coredns: "v1.14.3-eksbuild.14"
+    kube-proxy: "v1.36.0-eksbuild.17"
+    amazon-cloudwatch-observability: "v6.6.0-eksbuild.1"
+    metrics-server: "v0.9.0-eksbuild.7"
+    kube-state-metrics: "v2.19.1-eksbuild.5"
+    eks-pod-identity-agent: "v1.4.0-eksbuild.1"
+
+# ──────────────────────────────────────────────
+# ec2 Configuration
+# ──────────────────────────────────────────────
+ec2_instances:
+  bastion:
+    instance_type: "t3.large"
+    subnet_type: "public"
+    subnet_index: 0
+    security_groups: ["bastion"]
+    snapshot_id: "snap-0466119b4ac60713f"          # 指定历史备份快照
+    delete_on_termination: false                # 实例销毁时保留该卷，实现数据持久化
+    iam_role: "ec2-s3-access"
+    allocation_id: "eipalloc-0cabdf9fb73e8c1b4"
+    key_name: "neo4j"
+    custom_tags:
+      Role: "JumpHost-Neo4j"
+
+# ──────────────────────────────────────────────
+# elasticache Configuration
+# ──────────────────────────────────────────────
+elasticache:
+  redis:
+    engine_version: "7.1"
+    node_type: "cache.t4g.medium"
+    num_node_groups: 2
+    replicas_per_node_group: 1
+    maxmemory_policy: "volatile-lru"
+    subnet_type: "private_ec2"
+    security_groups: ["redis"]
+    # disalbe user authentication
+    transit_encryption_enabled: false
+    at_rest_encryption_enabled: false
+    #auth_token_secret_name: "dev/fake_domain/redis/auth"  # 指向 AWS Secrets Manager 中的 Secret 路径
+    automatic_failover_enabled: true
+    multi_az_enabled: false
+    snapshot_retention_limit: 7
+    snapshot_window: "19:00-20:00"          # 对应 CST 北京时间每日 03:00 - 04:00
+    maintenance_window: "sat:20:00-sat:21:00" # 对应 CST 北京时间周日 04:00 - 05:00 (UTC 为周六 20:00)
+    parameter_group_name: "dev-fake_domain-redis7-params"
+    parameter_group_family: "redis7"
+
+
+# ──────────────────────────────────────────────
+# aurora_postgresql Configuration
+# ──────────────────────────────────────────────
+aurora_postgresql:
+  engine_version: "17.4"
+  instance_class: "db.t4g.medium"
+  instance_count: 2
+  database_name: "appdb"
+  master_username: "postgres"
+  backup_retention_period: 7
+  preferred_backup_window: "19:00-20:00"
+  preferred_maintenance_window: "sun:20:00-sun:21:00"
+  deletion_protection: true
+  skip_final_snapshot: true
+  subnet_type: "private_ec2"
+  security_group_key: "aurora_pg"
+  extensions:
+    - "pgcrypto"
+    - "citext"
+    - "pg_trgm"
+  parameter_group:
+    family: "aurora-postgresql17"
+    parameters:
+      - name: "shared_preload_libraries"
+        value: "pg_stat_statements"
+        apply_method: "pending-reboot" 
+      - name: "pg_stat_statements.track"
+        value: "all"
+
+# ──────────────────────────────────────────────
+# iam user Configuration
+# ──────────────────────────────────────────────
+
+iam_users:
+  groups:
+    Admins:
+      policy_arns:
+        - "arn:aws-cn:iam::aws:policy/AdministratorAccess"
+    Developers:
+      policy_arns:
+        - "arn:aws-cn:iam::aws:policy/ReadOnlyAccess"
+    ReadOnly:
+      policy_arns:
+        - "arn:aws-cn:iam::aws:policy/ReadOnlyAccess"
+
+  users:
+    tian:
+      group_names:
+        - Admins
+    yonghui:
+      group_names:
+        - Developers
+    zhangjintian:
+      group_names:
+        - Developers
+    chenshu:
+      group_names:
+        - Developers
+    leihongwei:
+      group_names:
+        - Developers
+    rongxin:
+      group_names:
+        - Developers
+    yechunao:
+      group_names:
+        - Developers
+    yuanfei:
+      group_names:
+        - Developers
+    azooo:
+      group_names:
+        - Developers
+
+
+# ──────────────────────────────────────────────
+# S3 Configuration
+# ──────────────────────────────────────────────
+s3:
+  noncurrent_days: 30
+  buckets:
+    xxx-admin-site-test:
+      force_destroy: true
+    xxx-h5-site-test:
+      force_destroy: true
+    xxx-media-test:
+      force_destroy: true
+    xxx-ugc-test:
+      force_destroy: true
+# ──────────────────────────────────────────────
+# CloudFront Configuration
+# ──────────────────────────────────────────────
+# 主域名和 ACM 证书 ARN
+cloudfront:
+  domain_name: "fake_domain.com"
+  cert_arn: "arn:aws:acm:us-east-1:123456789012:certificate/xxxx-xxxx-xxxx"
+  # 价格等级，200 表示覆盖美洲、欧洲和亚洲
+  price_class: "PriceClass_200"
+  # WAF Web ACL ARN，资源到位后替换 TODO
+  web_acl_id: "TODO_WAF_WEB_ACL_ARN"
+
+  s3_buckets:
+    - "xxx-h5-site-test"
+    - "xxx-admin-site-test"
+    - "xxx-media-test"
+    - "xxx-ugc-test"
+
+  s3_subdomains:
+    h5: "xxx-h5-site-test"
+    admin: "xxx-admin-site-test"
+    media: "xxx-media-test"
+    ugc: "xxx-ugc-test"
+
+  api_subdomains:
+    api: "your-bff-gateway-hostname.execute-api.ap-northeast-1.amazonaws.com"
+    admin-api: "your-admin-bff-hostname.execute-api.ap-northeast-1.amazonaws.com"
+
+  # 源访问控制 (OAC) 配置
+  oac:
+    xxx-h5-site-test:
+      description: "OAC for xxx-h5-site-test"
+    xxx-admin-site-test:
+      description: "OAC for xxx-admin-site-test"
+
+  # CloudFront 分发配置
+  distributions:
+    # S3 静态网站分发
+    s3-site:
+      enabled: true
+      comment: "CDN for S3 static sites"
+      default_root_object: "index.html"
+      aliases:
+        - "h5-test.fake_domain.com"
+        - "admin-test.fake_domain.com"
+      origins:
+        - origin_id: "S3-xxx-h5-site-test"
+          type: "s3"
+          bucket_name: "xxx-h5-site-test"
+          oac_key: "xxx-h5-site-test"
+        - origin_id: "S3-xxx-admin-site-test"
+          type: "s3"
+          bucket_name: "xxx-admin-site-test"
+          oac_key: "xxx-admin-site-test"
+      default_cache_behavior:
+        target_origin_id: "S3-xxx-h5-site-test"
+      custom_error_response:
+        - error_code: 404
+          response_code: 200
+          response_page_path: "/index.html"
+      logging_config:
+        bucket: "TODO_LOGGING_BUCKET.s3.amazonaws.com"
+        prefix: "cloudfront/s3-site/"
+        include_cookies: false
+
+    # API Gateway 分发
+    api-gateway:
+      enabled: true
+      comment: "CDN for API Gateway"
+      aliases:
+        - "api-test.fake_domain.com"
+        - "admin-api-test.fake_domain.com"
+      origins:
+        - origin_id: "API-bff"
+          # Non-S3 origins websites.
+          type: "custom"
+          domain_name: "your-bff-gateway-hostname.execute-api.ap-northeast-1.amazonaws.com"
+          origin_protocol_policy: "https-only"
+        - origin_id: "API-admin-bff"
+          type: "custom"
+          domain_name: "your-admin-bff-hostname.execute-api.ap-northeast-1.amazonaws.com"
+          origin_protocol_policy: "https-only"
+      default_cache_behavior:
+        target_origin_id: "API-bff"
+        viewer_protocol_policy: "https-only"
+        allowed_methods:
+          - "GET"
+          - "HEAD"
+          - "OPTIONS"
+          - "PUT"
+          - "POST"
+          - "PATCH"
+          - "DELETE"
+        cached_methods:
+          - "GET"
+          - "HEAD"
+        cache_policy_id: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+        origin_request_policy_id: "TODO_ORIGIN_REQUEST_POLICY_ID"
+        response_headers_policy_id: "TODO_RESPONSE_HEADERS_POLICY_ID"
+      logging_config:
+        bucket: "TODO_LOGGING_BUCKET.s3.amazonaws.com"
+        prefix: "cloudfront/api-gateway/"
+        include_cookies: false
+
+# ──────────────────────────────────────────────
+# waf Configuration
+# ──────────────────────────────────────────────
+waf:
+
+  name: "eks-dev-waf"              # Base name for the WAF ACL (used for CloudWatch metrics and resource naming)
+  scope: "REGIONAL"                # Deployment Scope: REGIONAL (for ALB, API Gateway, or EKS Ingress). Use CLOUDFRONT for CloudFront distributions.
+  default_action: "ALLOW"          # Default action: Allow all requests that do not match any rules below (White-list mode)
+
+  # -------------------------------------------------------------------------
+  # 1. AWS Managed Rule Groups (Global threat intelligence against common attacks)
+  # -------------------------------------------------------------------------
+  aws_managed_rules:
+    # [Priority 1] Core Rule Set (CRS): Protects against web risks like OWASP Top 10, Local File Inclusion (LFI), XSS, etc.
+    - name: "AWSManagedRulesCommonRuleSet"
+      priority: 1
+      # 💡 Maintenance Note: Uncomment below to exclude specific rules if false positives occur (e.g., body size restrictions on file uploads)
+      # excluded_rules:
+      #   - "SizeRestrictions_BODY"  # Switches this specific rule to COUNT mode (log only, no block)
+
+    # [Priority 2] Known Bad Inputs: Blocks known malicious request bodies, invalid inputs, and encoding bypass attempts
+    - name: "AWSManagedRulesKnownBadInputsRuleSet"
+      priority: 2
+
+    # [Priority 3] Amazon IP Reputation List: Leverages AWS threat intelligence to block botnets, malicious crawlers, anonymous proxies, and Tor nodes
+    - name: "AWSManagedRulesAmazonIpReputationList"
+      priority: 3
+
+    # [Extension Example] Future compatibility for AWS Marketplace third-party rules (The Terraform module natively supports this)
+    # - name: "FortinetManagedRulesOWASPTop10"
+    #   priority: 4
+    #   vendor_name: "Fortinet"      # Explicitly required only for third-party marketplace rules
+
+  # -------------------------------------------------------------------------
+  # 2. Custom Business Protection Rules (Tailored security policies based on business needs)
+  # -------------------------------------------------------------------------
+  custom_rules:
+    # [Rule 10] Malicious Bot / Scraper Mitigation
+    # Logic: Blocks requests where the HTTP User-Agent header contains specific malicious strings
+    - name: "BlockBadBots"
+      priority: 10
+      action: "BLOCK"              # Immediately blocks matching requests with a 403 Forbidden response
+      statement:
+        byte_match_statement:
+          search_string: "bad-bot" # Signature string of the malicious crawler
+          positional_constraint: "CONTAINS" # Substring match
+          field_to_match:
+            single_header:
+              name: "user-agent"   # Target HTTP header field
+          text_transformation:
+            - priority: 0
+              type: "NONE"         # No text conversion before matching
+
+    # [Rule 15] Block Empty User-Agent
+    # Logic: Automated scripts, primitive scraping tools, or DDoS vectors often emit blank User-Agents. Block them immediately.
+    - name: "BlockEmptyUserAgent"
+      priority: 15
+      action: "BLOCK"
+      statement:
+        size_constraint_statement:
+          comparison_operator: "EQ" # Size exactly equals
+          size: 0                  # 0 bytes long
+          field_to_match:
+            single_header:
+              name: "user-agent"
+          text_transformation:
+            - priority: 0
+              type: "NONE"
+
+    # [Rule 20] Geo-Location Geofencing (Blacklist Approach via NOT Operator)
+    # Logic: Blocks all incoming traffic originating from any country EXCEPT CN (China) and US (United States)
+    - name: "AllowOnlyTargetCountries"
+      priority: 20
+      action: "BLOCK"
+      statement:
+        not_statement:              # Inverts the logic of the inner geo_match
+          statement:
+            geo_match_statement:
+              country_codes:
+                - "CN"             # Allowed Country 1
+                - "US"             # Allowed Country 2
+
+    # [Rule 30] High-Value API Endpoint Rate Limiting (Layer 7 DDoS / Brute-Force Mitigation)
+    # Logic: Limits the maximum number of requests a single source IP can make to the login endpoint within a rolling 5-minute window
+    - name: "RateLimitLoginAPI"
+      priority: 30
+      action: "BLOCK"
+      statement:
+        rate_based_statement:
+          limit: 100               # Request threshold per IP within 5 minutes (AWS minimum allowed is 10)
+          aggregate_key_type: "IP"  # Tracks and counts requests based on client source IP
+          scope_down_statement:    # Conditions that narrow down the rule applicability (applies only to login endpoint)
+            byte_match_statement:
+              search_string: "/api/v1/login"  # High-risk sensitive authentication endpoint
+              positional_constraint: "STARTS_WITH" # Prefix match
+              field_to_match:
+                uri_path: {}       # Matches against the URL path
+              text_transformation:
+                - priority: 0
+                  type: "NONE"
+
+    # [Rule 40] Global IP Rate Limiting (Catch-All Anti-Scraping / Bulk Scanning Defenses)
+    # Logic: A final safety net to block a single rogue IP from overwhelming the entire application with brute-force crawling
+    - name: "RateLimitPerIP"
+      priority: 40
+      action: "BLOCK"
+      statement:
+        rate_based_statement:
+          limit: 2000              # Global request threshold per IP within 5 minutes
+          aggregate_key_type: "IP" # 💡 Maintenance Note: Omitting scope_down_statement applies this limit to ALL routes globally
+
+
+################# Alibaba Cloud ##############
+
+alicloud_region: "cn-beijing"
+
+alicloud_ram:
+
+  users:
+    frontend:
+      user_name: "xxx-oss-upload-dev"
+      display_name: "OSS frontend uploader"
+      comments: "CI/CD upload for admin and H5 frontend"
+
+      buckets:
+        - name: dev-fake_domain-xxx-admin-site-test-sz
+          permissions:
+            - oss:PutObject
+            - oss:GetObject
+            - oss:ListObjects
+            - oss:DeleteObject
+
+        - name: dev-fake_domain-xxx-h5-site-test-sz
+          permissions:
+            - oss:PutObject
+            - oss:GetObject
+            - oss:ListObjects
+            - oss:DeleteObject
+        #临时测试版本
+        - name: dev-fake_domain-xxx-h5-site-test-yf-sz
+          permissions:
+            - oss:PutObject
+            - oss:GetObject
+            - oss:ListObjects
+            - oss:DeleteObject
+
+    media:
+      # 允许 etl 微服务访问media,球员头像等用得到。
+      user_name: "xxx-oss-media-dev"
+      display_name: "OSS media service"
+      comments: "ETL media object storage access"
+
+      buckets:
+        - name: dev-fake_domain-xxx-media-test-sz
+          permissions:
+            - oss:PutObject
+            - oss:GetObject
+            - oss:ListObjects
+            - oss:DeleteObject
+
+# oss bucket
+oss_bucket:
+  region: cn-beijing
+  lifecycle_noncurrent_days: 30 
+  buckets:
+    xxx-admin-site-test-sz:
+      force_destroy: true
+
+    xxx-h5-site-test-sz:
+      force_destroy: true
+
+    # 临时测试
+    xxx-h5-site-test-yf-sz:
+      force_destroy: true
+    # ！！！
+    xxx-media-test-sz:
+      force_destroy: true
+    xxx-ugc-test-sz:
+      force_destroy: true
+
+#  CDN 配置
+cdn:
+  # 全局 SSL 证书名称
+  cdn_cert_name: "cert-l7n79"
+
+  # media/ugc anit-leech
+  referer_whitelist:
+    domains:
+      - "xxx-media-test.fake_domain.com"
+      - "xxx-ugc-test.fake_domain.com"
+    allow_list: "*.fake_domain.com"
+    allow_empty: "on"
+    ignore_scheme: "on"
+
+  cdn_domains:
+    # ---- 回源 OSS 的域名（静态资源） ----
+    "h5-test.fake_domain.com":
+      source_type: "oss"
+      source_bucket_key: "xxx-h5-site-test-sz"
+
+    #临时测试版本
+    "h5-test-yf.fake_domain.com":
+      source_type: "oss"
+      source_bucket_key: "xxx-h5-site-test-yf-sz"
+
+    "admin-test.fake_domain.com":
+      source_type: "oss"
+      source_bucket_key: "xxx-admin-site-test-sz"
+
+    "xxx-media-test.fake_domain.com":
+      source_type: "oss"
+      source_bucket_key: "xxx-media-test-sz"
+
+    "xxx-ugc-test.fake_domain.com":
+      source_type: "oss"
+      source_bucket_key: "xxx-ugc-test-sz"
+    # ---- 回源 AWS ALB 的域名（动态 API） ----
+    # !!! 动态API 不走CDN,没有意义 ！！！
+
+# 2. WAF 实例查询配置,we must create it manually.
+waf:
+  instance_name_regex: "^prod-waf-instance$"
+  # 用在 Alicloud WAF 和 AWS ELB 之间的serect,防止被第三方工具刷后端。
+  # 严禁泄露，要定期轮换比较安全。
+  waf_alb_shared_secret: "3xFXGBwi6aZr6cDDAczfkcDkaH6Undw2"
+  # 全局 SSL 证书 ID（用于 WAF 域名接入的 HTTPS 配置）
+  waf_cert_name: "cert-l7n79"
+
+  # 3. WAF 域名接入配置
+  waf_domains:
+  #  # 动态 API 走 WAF
+    "api-test.fake_domain.com":
+      alb_address: "k8s-default-fake_domain-b95b7c9dca-1550009738.cn-northwest-1.elb.amazonaws.com.cn"
+    "admin-api-test.fake_domain.com":
+      alb_address: "k8s-default-fake_domain-b95b7c9dca-1550009738.cn-northwest-1.elb.amazonaws.com.cn"
+    "live-mock-test.fake_domain.com":
+      alb_address: "k8s-default-fake_domain-b95b7c9dca-1550009738.cn-northwest-1.elb.amazonaws.com.cn"

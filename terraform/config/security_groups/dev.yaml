@@ -1,0 +1,104 @@
+---
+redis:
+  description: "Redis cluster security group"
+  ingress_rules:
+    - description: "Allow Redis from EKS pod subnets"
+      from_port: 6379
+      to_port: 6379
+      protocol: "tcp"
+      cidr_blocks: 
+        - "10.10.32.0/19"
+        - "10.10.64.0/19"
+        - "10.10.96.0/19"
+    - description: "Allow redis from all VPC subnets (Public and Private)"
+      from_port: 6379
+      to_port: 6379
+      protocol: "tcp"
+      cidr_blocks:
+        - "10.10.0.0/20"  # 覆盖所有 public 子网 (10.10.0.0/22, 10.10.4.0/22, 10.10.8.0/22)
+        - "10.10.16.0/22" # private_ec2 子网 1
+        - "10.10.20.0/22" # private_ec2 子网 2
+        - "10.10.24.0/22" # private_ec2 子网 3
+      tags:
+        Name: "allow-access-from-all-vpc-subnets"
+
+  egress_rules:
+    - description: "Allow all outbound traffic"
+      from_port: 0
+      to_port: 0
+      protocol: "-1"
+      cidr_blocks: ["0.0.0.0/0"]
+
+bastion:
+  description: "Bastion host security group"
+  ingress_rules:
+    - description: "SSH from Corporate IP"
+      from_port: 22
+      to_port: 22
+      protocol: "tcp"
+      cidr_blocks: ["0.0.0.0/0"]
+
+    - description: "Allow access Neo4j from public IP"
+      from_port: 7687 
+      to_port: 7687 
+      protocol: "tcp"
+      cidr_blocks: ["0.0.0.0/0"]
+    - description: "Allow access Neo4j from public IP"
+      from_port: 7474
+      to_port: 7474
+      protocol: "tcp"
+      cidr_blocks: ["0.0.0.0/0"]
+
+    - description: "allow all traffic to 80"
+      from_port: 80
+      to_port: 80
+      protocol: "tcp"
+      cidr_blocks: ["0.0.0.0/0"]
+    - description: "allow all traffic to 443"
+      from_port: 443 
+      to_port: 443
+      protocol: "tcp"
+      cidr_blocks: ["0.0.0.0/0"]
+
+  egress_rules:
+    - description: "Allow all outbound traffic"
+      from_port: 0
+      to_port: 0
+      protocol: "-1"
+      cidr_blocks: ["0.0.0.0/0"]
+
+aurora_pg:
+  description: "Security group for Aurora PostgreSQL cluster"
+  ingress_rules:
+    - description: "Allow PostgreSQL from EKS nodes"
+      from_port: 5432
+      to_port: 5432
+      protocol: "tcp"
+      cidr_blocks:
+        - "10.10.32.0/19"
+        - "10.10.64.0/19"
+        - "10.10.96.0/19"
+      tags:
+        Name: "allow-access-from-eks-pod-subnets"
+
+    - description: "Allow PostgreSQL from all VPC subnets (Public and Private)"
+      from_port: 5432
+      to_port: 5432
+      protocol: "tcp"
+      cidr_blocks:
+        - "10.10.0.0/20"  # 覆盖所有 public 子网 (10.10.0.0/22, 10.10.4.0/22, 10.10.8.0/22)
+        - "10.10.16.0/22" # private_ec2 子网 1
+        - "10.10.20.0/22" # private_ec2 子网 2
+        - "10.10.24.0/22" # private_ec2 子网 3
+      tags:
+        Name: "allow-access-from-all-vpc-subnets"
+
+  egress_rules:
+    - description: "Allow all outbound traffic"
+      from_port: 0
+      to_port: 0
+      protocol: "-1"
+      cidr_blocks: ["0.0.0.0/0"]
+      tags:
+        Name: "allow-all-outbound"
+

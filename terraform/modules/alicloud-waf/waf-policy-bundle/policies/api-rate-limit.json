@@ -1,0 +1,23 @@
+[
+  {
+    "name": "api-40qps-captcha",
+    "status": 1,
+    "origin": "custom",
+    "action": "captcha",
+    "conditions": [
+      {
+        "key": "URLPath",
+        "opValue": "prefix-match",
+        "values": "/api/"
+      }
+    ],
+    "ccStatus": 1,
+    "ratelimit": {
+      "target": "remote_addr",
+      "interval": 1,
+      "threshold": 40,
+      "ttl": 1800
+    },
+    "effect": "rule"
+  }
+]

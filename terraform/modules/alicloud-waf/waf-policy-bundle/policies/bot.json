@@ -1,0 +1,43 @@
+[
+  {
+    "status": 1,
+    "botRuleDetail": {
+      "ruleKey": "human_machine_challenge"
+    },
+    "action": "js"
+  },
+  {
+    "status": 1,
+    "botBehavior": "malicious",
+    "botRuleDetail": {
+      "ruleKey": "malicious_crawler_python"
+    },
+    "action": "captcha"
+  },
+  {
+    "status": 1,
+    "botBehavior": "normal",
+    "botRuleDetail": {
+      "ruleKey": "normal_intelligence_search_spider"
+    },
+    "crawlerStatusMap": {
+      "google": 1,
+      "baidu": 1,
+      "bing": 1,
+      "sogou": 1,
+      "yahoo": 1,
+      "yandex": 1,
+      "bytedance": 1,
+      "360": 1
+    },
+    "action": "bypass"
+  },
+  {
+    "status": 1,
+    "botBehavior": "suspicious",
+    "botRuleDetail": {
+      "ruleKey": "suspicious_development_tool_python"
+    },
+    "action": "monitor"
+  }
+]
