@@ -427,10 +427,26 @@ tags = merge(
 
 ---
 
+# 14. State Drift（状态漂移）处理
 
-# 14. 最核心的规范
+团队初期手动建资源，后期引入 Terraform，最容易出现**云端资源与代码不一致**。
 
+常见场景处理：
 
-> **Terraform 项目必须遵循模块化设计。Environment Root Module 负责资源编排，不负责具体 AWS Resource 实现。具体资源必须封装在独立 Module 中。Module 之间不得直接访问彼此内部 Resource，只能通过 Input / Output 进行数据传递。环境差异通过 `config/<environment>.yaml` 管理，Module 不应硬编码环境条件。每个 Module 应至少包含 `main.tf`、`variables.tf`、`outputs.tf`、`locals.tf` 和 `providers.tf`，并保持单一职责。
+```text
+1. 云端手动建了，代码里没有（幽灵资源）
+   → 写好代码 + import 纳管
+
+2. 代码里建了，云端被手动删了
+   → 确认废弃：state rm + 删代码
+   → 属于误删：直接 apply 恢复
+
+3. 云端被手动改了属性或名字
+   → 看清 plan 标记：~ (原地更新) 相对安全；-/+ (销毁重建) 严禁直接 apply
+   → 触发重建的改名：先 state rm 解绑旧资源，改代码后再重新 import
+
+4. 重构代码改了资源变量名（云端没动）
+   → 使用 moved 块无损迁移状态，不要直接改名（会导致先删后建）
+```
 
 
